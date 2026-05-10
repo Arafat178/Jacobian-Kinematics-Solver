@@ -124,5 +124,3 @@ D=[dx;dy;dz;\delta x;\delta y;\delta z]^T
 
 **Arafat**
 Mechanical Engineering Student
-Mechanical Engineering Student
-Passionate about robotics, automation, and computational mechanics.
