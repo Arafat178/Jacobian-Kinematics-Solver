@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robotics Jacobian & Inverse Velocity Solver</title>
+    
+    <!-- External Math & PDF Libraries (Still required for calculation/export) -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/11.8.0/math.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+    
+    <!-- MathJax -->
+    <script>
+        window.MathJax = {
+            tex: {
+                inlineMath: [['$', '$'], ['\\(', '\\)']],
+                displayMath: [['$$', '$$'], ['\\[', '\\]']]
+            },
+            startup: { typeset: false }
+        };
+    </script>
+    <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
+    
+    <style>
+        /* --- Vanilla CSS Custom Properties (Light/Dark Mode) --- */
+        :root {
+            --bg-body: #f3f4f6;
+            --bg-surface: #ffffff;
+            --bg-surface-alt: #f9fafb;
+            --text-main: #111827;
+            --text-muted: #6b7280;
+            --border-color: #e5e7eb;
+            --primary: #3b82f6;
+            --primary-hover: #2563eb;
+            --secondary: #10b981;
+            --secondary-hover: #059669;
+            --danger: #ef4444;
+            --danger-hover: #dc2626;
+            --gray-btn: #4b5563;
+            --gray-btn-hover: #374151;
+            --shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+            --radius: 8px;
+        }
+
+        .dark {
+            --bg-body: #111827;
+            --bg-surface: #1f2937;
+            --bg-surface-alt: #374151;
+            --text-main: #f9fafb;
+            --text-muted: #9ca3af;
+            --border-color: #4b5563;
+        }
+
+        /* --- Global Resets & Typography --- */
+        * { box-sizing: border-box; margin: 0; padding: 0; }
+        body {
+            font-family: system-ui, -apple-system, sans-serif;
+            background-color: var(--bg-body);
+            color: var(--text-main);
+            line-height: 1.5;
+            transition: background-color 0.3s, color 0.3s;
+        }
+        
+        .container {
+            max-width: 1152px;
+            margin: 0 auto;
+            padding: 24px;
+        }
+
+        /* --- Layout & Typography --- */
+        header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 24px; }
+        h1 { color: var(--primary); font-size: 24px; }
+        h2 { font-size: 20px; border-bottom: 1px solid var(--border-color); padding-bottom: 8px; margin-bottom: 16px; }
+        h3 { font-size: 16px; margin: 16px 0 8px 0; }
+        
+        .card {
+            background-color: var(--bg-surface);
+            border-radius: var(--radius);
+            box-shadow: var(--shadow);
+            padding: 24px;
+            margin-bottom: 32px;
+        }
+
+        .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; margin-bottom: 24px; }
+        .grid-6 { display: grid; grid-template-columns: repeat(auto-fit, minmax(80px, 1fr)); gap: 12px; margin-bottom: 24px; }
+        
+        .flex-buttons { display: flex; flex-wrap: wrap; gap: 16px; }
+
+        label { display: block; font-weight: 600; margin-bottom: 4px; font-size: 14px; }
+
+        /* --- Inputs & Tables --- */
+        input[type="number"], select {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid var(--border-color);
+            border-radius: 4px;
+            background-color: transparent;
+            color: var(--text-main);
+        }
+
+        .table-responsive { overflow-x: auto; margin-bottom: 24px; }
+        table { width: 100%; border-collapse: collapse; text-align: center; }
+        th, td { border: 1px solid var(--border-color); padding: 8px; }
+        thead { background-color: var(--bg-surface-alt); }
+
+        /* --- Buttons --- */
+        button {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 4px;
+            font-weight: bold;
+            color: white;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+        .btn-toggle { background-color: var(--bg-surface-alt); color: var(--text-main); border: 1px solid var(--border-color); }
+        .btn-toggle:hover { background-color: var(--border-color); }
+        .btn-primary { background-color: var(--primary); }
+        .btn-primary:hover { background-color: var(--primary-hover); }
+        .btn-secondary { background-color: var(--secondary); }
+        .btn-secondary:hover { background-color: var(--secondary-hover); }
+        .btn-danger { background-color: var(--danger); }
+        .btn-danger:hover { background-color: var(--danger-hover); }
+        .btn-gray { background-color: var(--gray-btn); }
+        .btn-gray:hover { background-color: var(--gray-btn-hover); }
+        .btn-small { padding: 4px 8px; font-size: 12px; border-radius: 4px; background-color: #dbeafe; color: #1e40af; margin-top: 8px;}
+
+        /* --- Dynamic Steps --- */
+        .hidden { display: none; }
+        .step-card {
+            background-color: var(--bg-surface);
+            border: 1px solid var(--border-color);
+            border-radius: var(--radius);
+            margin-bottom: 16px;
+            overflow: hidden;
+        }
+        .step-header {
+            padding: 16px;
+            background-color: var(--bg-surface-alt);
+            font-weight: bold;
+            cursor: pointer;
+            display: flex;
+            justify-content: space-between;
+        }
+        .step-header:hover { background-color: var(--border-color); }
+        .step-content {
+            max-height: 0;
+            overflow: hidden;
+            transition: max-height 0.4s ease-in-out;
+            padding: 0 16px;
+        }
+        .step-content.open { max-height: 5000px; padding: 16px; overflow-x: auto; }
+        
+        .math-scroll { overflow-x: auto; padding-bottom: 10px; }
+        .alert-warning { background-color: #fee2e2; border: 1px solid #f87171; color: #991b1b; padding: 12px; border-radius: 4px; margin-bottom: 16px; }
+        .alert-success { color: #059669; font-weight: bold; margin-bottom: 8px; }
+        .result-box { background-color: #d1fae5; border: 1px solid #6ee7b7; padding: 16px; border-radius: 4px; margin-top: 16px; color: #065f46; }
+        .dark .result-box { background-color: #064e3b; border-color: #059669; color: #d1fae5; }
+        .dark .alert-warning { background-color: #7f1d1d; border-color: #b91c1c; color: #fca5a5; }
+    </style>
+</head>
+<body>
+    <div class="container" id="app-container">
+        <!-- Header -->
+        <header>
+            <h1>Jacobian Kinematics Solver</h1>
+            <button onclick="toggleTheme()" class="btn-toggle shadow">Toggle Dark/Light</button>
+        </header>
+
+        <!-- Input Section -->
+        <div class="card shadow">
+            <h2>1. Configuration</h2>
+            
+            <div class="grid-2">
+                <div>
+                    <label>Number of Joints (1-6)</label>
+                    <input type="number" id="num-joints" value="3" min="1" max="6" onchange="generateTable()">
+                </div>
+                <div>
+                    <label>Angle Unit</label>
+                    <select id="angle-unit">
+                        <option value="Degree">Degree</option>
+                        <option value="Radian">Radian</option>
+                    </select>
+                </div>
+            </div>
+
+            <h3>Denavit-Hartenberg (D-H) Parameters</h3>
+            <div class="table-responsive">
+                <table id="dh-table">
+                    <thead>
+                        <tr>
+                            <th>Joint $i$</th>
+                            <th>Type</th>
+                            <th>$\theta_i$ (Theta)</th>
+                            <th>$d_i$ (d)</th>
+                            <th>$a_i$ (a)</th>
+                            <th>$\alpha_i$ (Alpha)</th>
+                        </tr>
+                    </thead>
+                    <tbody id="dh-body">
+                        <!-- Generated dynamically -->
+                    </tbody>
+                </table>
+            </div>
+
+            <h3>Desired Differential Motion $[D]$</h3>
+            <div class="grid-6">
+                <div><label>dx</label><input type="number" id="dx" value="0"></div>
+                <div><label>dy</label><input type="number" id="dy" value="0.1"></div>
+                <div><label>dz</label><input type="number" id="dz" value="0"></div>
+                <div><label>$\delta x$</label><input type="number" id="deltax" value="0"></div>
+                <div><label>$\delta y$</label><input type="number" id="deltay" value="0"></div>
+                <div><label>$\delta z$</label><input type="number" id="deltaz" value="0"></div>
+            </div>
+
+            <div class="flex-buttons">
+                <button onclick="solve()" class="btn-primary shadow">Solve Step by Step</button>
+                <button onclick="loadExample()" class="btn-secondary shadow">Load 6-DOF Example</button>
+                <button onclick="clearAll()" class="btn-danger shadow">Clear All</button>
+                <button onclick="exportPDF()" class="btn-gray shadow">Export to PDF</button>
+            </div>
+        </div>
+
+        <!-- Output Section -->
+        <div id="output-section" class="hidden">
+            <h2>Solution Steps</h2>
+            <div id="steps-container"></div>
+        </div>
+    </div>
+
+    <script>
+        // --- State and Initialization ---
+        let isDarkMode = false;
+        
+        function toggleTheme() {
+            isDarkMode = !isDarkMode;
+            document.documentElement.classList.toggle('dark', isDarkMode);
+        }
+
+        function generateTable() {
+            const n = parseInt(document.getElementById('num-joints').value);
+            const tbody = document.getElementById('dh-body');
+            tbody.innerHTML = '';
+            for(let i=1; i<=n; i++) {
+                tbody.innerHTML += `
+                    <tr>
+                        <td><strong>${i}</strong></td>
+                        <td>
+                            <select id="type-${i}">
+                                <option value="Revolute">Revolute</option>
+                                <option value="Prismatic">Prismatic</option>
+                            </select>
+                        </td>
+                        <td><input type="number" id="theta-${i}" value="0"></td>
+                        <td><input type="number" id="d-${i}" value="0"></td>
+                        <td><input type="number" id="a-${i}" value="0"></td>
+                        <td><input type="number" id="alpha-${i}" value="0"></td>
+                    </tr>
+                `;
+            }
+            if(window.MathJax) MathJax.typesetPromise();
+        }
+
+        function loadExample() {
+            document.getElementById('num-joints').value = 6;
+            generateTable();
+            document.getElementById('angle-unit').value = 'Degree';
+            
+            const params = [
+                ['Revolute', 0, 0, 0, -90],
+                ['Revolute', 0, 0, 0.4318, 0],
+                ['Revolute', 0, 0.15, 0.0203, -90],
+                ['Revolute', 0, 0.4318, 0, 90],
+                ['Revolute', 0, 0, 0, -90],
+                ['Revolute', 0, 0, 0, 0]
+            ];
+
+            for(let i=1; i<=6; i++) {
+                document.getElementById(`type-${i}`).value = params[i-1][0];
+                document.getElementById(`theta-${i}`).value = params[i-1][1];
+                document.getElementById(`d-${i}`).value = params[i-1][2];
+                document.getElementById(`a-${i}`).value = params[i-1][3];
+                document.getElementById(`alpha-${i}`).value = params[i-1][4];
+            }
+
+            document.getElementById('dx').value = 0.1;
+            document.getElementById('dy').value = -0.05;
+            document.getElementById('dz').value = 0.02;
+            document.getElementById('deltax').value = 0;
+            document.getElementById('deltay').value = 0.1;
+            document.getElementById('deltaz').value = 0;
+        }
+
+        function clearAll() {
+            document.getElementById('num-joints').value = 3;
+            generateTable();
+            ['dx','dy','dz','deltax','deltay','deltaz'].forEach(id => document.getElementById(id).value = 0);
+            document.getElementById('output-section').classList.add('hidden');
+        }
+
+        window.onload = generateTable;
+
+        // --- Math & Solvers ---
+        const cleanZero = (val) => Math.abs(val) < 1e-10 ? 0 : val;
+
+        function getA(theta, d, a, alpha, isDeg) {
+            let th = isDeg ? theta * Math.PI / 180 : theta;
+            let al = isDeg ? alpha * Math.PI / 180 : alpha;
+            let ct = cleanZero(Math.cos(th)), st = cleanZero(Math.sin(th));
+            let ca = cleanZero(Math.cos(al)), sa = cleanZero(Math.sin(al));
+
+            return [
+                [ct, cleanZero(-st*ca), cleanZero(st*sa), cleanZero(a*ct)],
+                [st, cleanZero(ct*ca), cleanZero(-ct*sa), cleanZero(a*st)],
+                [0, sa, ca, d],
+                [0, 0, 0, 1]
+            ];
+        }
+
+        function matToTex(mat) {
+            let tex = '\\begin{bmatrix}';
+            for(let i=0; i<mat.length; i++) {
+                let row = Array.isArray(mat[i]) ? mat[i] : [mat[i]];
+                tex += row.map(v => typeof v === 'number' ? Number(v.toFixed(5)).toString() : v).join(' & ');
+                if(i < mat.length - 1) tex += ' \\\\ ';
+            }
+            tex += '\\end{bmatrix}';
+            return tex;
+        }
+
+        function toggleStep(id) {
+            document.getElementById(id).classList.toggle('open');
+        }
+
+        function copyTex(text) {
+            navigator.clipboard.writeText(text);
+            alert("LaTeX copied to clipboard!");
+        }
+
+        function createStepCard(stepNum, title, content) {
+            return `
+                <div class="step-card">
+                    <div class="step-header" onclick="toggleStep('step-${stepNum}')">
+                        <span>Step ${stepNum}: ${title}</span>
+                        <span>▼</span>
+                    </div>
+                    <div id="step-${stepNum}" class="step-content open">
+                        ${content}
+                    </div>
+                </div>
+            `;
+        }
+
+        async function solve() {
+            const N = parseInt(document.getElementById('num-joints').value);
+            const isDeg = document.getElementById('angle-unit').value === 'Degree';
+            const container = document.getElementById('steps-container');
+            container.innerHTML = '';
+            document.getElementById('output-section').classList.remove('hidden');
+
+            let stepsHTML = '';
+
+            // Step 1: D-H Table
+            let dhTex = '\\begin{array}{|c|c|c|c|c|c|}\\hline i & \\text{Type} & \\theta_i & d_i & a_i & \\alpha_i \\\\ \\hline';
+            let params = [];
+            for(let i=1; i<=N; i++) {
+                let type = document.getElementById(`type-${i}`).value;
+                let theta = parseFloat(document.getElementById(`theta-${i}`).value);
+                let d = parseFloat(document.getElementById(`d-${i}`).value);
+                let a = parseFloat(document.getElementById(`a-${i}`).value);
+                let alpha = parseFloat(document.getElementById(`alpha-${i}`).value);
+                params.push({type, theta, d, a, alpha});
+                dhTex += `${i} & \\text{${type}} & ${theta} & ${d} & ${a} & ${alpha} \\\\ \\hline`;
+            }
+            dhTex += '\\end{array}';
+            stepsHTML += createStepCard(1, "Input D-H Table", `<div class="math-scroll">$$ ${dhTex} $$</div>`);
+
+            // Step 2: A Matrices
+            let A_matrices = [];
+            let aStepHTML = `<div class="math-scroll">$$ A_i = \\begin{bmatrix} \\cos\\theta_i & -\\sin\\theta_i\\cos\\alpha_i & \\sin\\theta_i\\sin\\alpha_i & a_i\\cos\\theta_i \\\\ \\sin\\theta_i & \\cos\\theta_i\\cos\\alpha_i & -\\cos\\theta_i\\sin\\alpha_i & a_i\\sin\\theta_i \\\\ 0 & \\sin\\alpha_i & \\cos\\alpha_i & d_i \\\\ 0 & 0 & 0 & 1 \\end{bmatrix} $$</div>`;
+            
+            for(let i=0; i<N; i++) {
+                let p = params[i];
+                let A = getA(p.theta, p.d, p.a, p.alpha, isDeg);
+                A_matrices.push(A);
+                aStepHTML += `<p><strong>Joint ${i+1}:</strong></p><div class="math-scroll">$$ A_${i+1} = ${matToTex(A)} $$</div>`;
+            }
+            stepsHTML += createStepCard(2, "Construct Transformation Matrices", aStepHTML);
+
+            // Step 3: Forward Kinematics
+            let T0n = A_matrices[0];
+            for(let i=1; i<N; i++) T0n = math.multiply(T0n, A_matrices[i]);
+            stepsHTML += createStepCard(3, "Compute Forward Kinematics (${}^0T_n$)", `<div class="math-scroll">$$ {}^0T_${N} = A_1 \\dots A_${N} = ${matToTex(T0n)} $$</div>`);
+
+            // Step 4: Jacobian Column Matrices
+            let T_list = [];
+            let tStepHTML = ``;
+            for(let i=1; i<=N; i++) {
+                let T = A_matrices[i-1];
+                for(let j=i; j<N; j++) T = math.multiply(T, A_matrices[j]);
+                T_list.push(T);
+                tStepHTML += `<p>For Joint ${i} ($^{i-1}T_n$):</p> <div class="math-scroll">$$ {}^{${i-1}}T_${N} = ${matToTex(T)} $$</div>`;
+            }
+            stepsHTML += createStepCard(4, "Matrices for Jacobian Columns", tStepHTML);
+
+            // Step 5 & 6: Compute J_i
+            let extStepHTML = ``;
+            let J_cols = [];
+            
+            for(let i=0; i<N; i++) {
+                let T = T_list[i];
+                let nx=T[0][0], ox=T[0][1], ax=T[0][2], px=T[0][3];
+                let ny=T[1][0], oy=T[1][1], ay=T[1][2], py=T[1][3];
+                let nz=T[2][0], oz=T[2][1], az=T[2][2], pz=T[2][3];
+
+                extStepHTML += `<div style="margin: 10px 0; padding: 10px; background: var(--bg-surface-alt); border-radius: 4px;">
+                    <strong>Joint ${i+1} (${params[i].type}):</strong> <br>
+                    n = [${nx.toFixed(2)}, ${ny.toFixed(2)}, ${nz.toFixed(2)}], 
+                    p = [${px.toFixed(2)}, ${py.toFixed(2)}, ${pz.toFixed(2)}]
+                </div>`;
+
+                let J_i = [];
+                if(params[i].type === 'Revolute') {
+                    J_i = [ cleanZero(-(nx*py - ny*px)), cleanZero(-(ox*py - oy*px)), cleanZero(-(ax*py - ay*px)), nz, oz, az ];
+                    extStepHTML += `<div class="math-scroll">$$ J_${i+1} = \\begin{bmatrix} -(n_x p_y - n_y p_x) \\\\ -(o_x p_y - o_y p_x) \\\\ -(a_x p_y - a_y p_x) \\\\ n_z \\\\ o_z \\\\ a_z \\end{bmatrix} = ${matToTex(J_i)} $$</div>`;
+                } else {
+                    J_i = [ax, ay, az, 0, 0, 0];
+                    extStepHTML += `<div class="math-scroll">$$ J_${i+1} = \\begin{bmatrix} a_x \\\\ a_y \\\\ a_z \\\\ 0 \\\\ 0 \\\\ 0 \\end{bmatrix} = ${matToTex(J_i)} $$</div>`;
+                }
+                J_cols.push(J_i);
+            }
+            stepsHTML += createStepCard(5, "Compute Jacobian Columns", extStepHTML);
+
+            // Step 7: Assemble Full J
+            let J = [];
+            for(let row=0; row<6; row++) {
+                let J_row = [];
+                for(let col=0; col<N; col++) J_row.push(J_cols[col][row]);
+                J.push(J_row);
+            }
+            stepsHTML += createStepCard(7, "Assemble Full Jacobian Matrix", `<div class="math-scroll">$$ J = ${matToTex(J)} $$</div>
+            <button onclick='copyTex("${matToTex(J).replace(/\\/g, '\\\\')}")' class='btn-small'>Copy LaTeX</button>`);
+
+            // Step 8: Differential Motion
+            let D = [
+                parseFloat(document.getElementById('dx').value), parseFloat(document.getElementById('dy').value),
+                parseFloat(document.getElementById('dz').value), parseFloat(document.getElementById('deltax').value),
+                parseFloat(document.getElementById('deltay').value), parseFloat(document.getElementById('deltaz').value)
+            ];
+            stepsHTML += createStepCard(8, "Desired Differential Motion", `<div class="math-scroll">$$ D = ${matToTex(D)} $$</div>`);
+
+            // Step 9: Solve Inverse
+            let J_inv, methodText = "", singularityAlert = "";
+
+            if(N === 6) {
+                let det = math.det(J);
+                if(Math.abs(det) < 1e-5) {
+                    methodText = "Moore-Penrose Pseudoinverse (Singular Configuration)";
+                    singularityAlert = `<div class="alert-warning"><strong>Warning:</strong> Determinant is $\\approx 0$ (${det.toFixed(6)}). Singular matrix.</div>`;
+                    J_inv = math.pinv(J);
+                } else {
+                    methodText = "Standard Matrix Inverse";
+                    singularityAlert = `<p class="alert-success">Determinant = ${det.toFixed(4)} (Non-singular)</p>`;
+                    J_inv = math.inv(J);
+                }
+            } else {
+                methodText = "Moore-Penrose Pseudoinverse (Non-square matrix)";
+                J_inv = math.pinv(J);
+            }
+
+            stepsHTML += createStepCard(9, "Compute Inverse Jacobian", `
+                ${singularityAlert}
+                <p>Method: ${methodText}</p>
+                <div class="math-scroll">$$ J^{-1} \\text{ or } J^+ = ${matToTex(J_inv)} $$</div>
+            `);
+
+            // Step 10: Final Joint Velocities
+            let q_dot = math.multiply(J_inv, D);
+            let resTex = '\\begin{bmatrix}';
+            let resDisplay = '<ul style="margin-left:20px;">';
+            for(let i=0; i<N; i++) {
+                resTex += q_dot[i].toFixed(5);
+                if(i < N-1) resTex += ' \\\\ ';
+                let unit = params[i].type === 'Revolute' ? 'rad/s' : 'm/s';
+                resDisplay += `<li style="margin-bottom:8px;font-size:18px;">$\\dot{\\theta}_${i+1}$ = <strong>${q_dot[i].toFixed(5)}</strong> ${unit}</li>`;
+            }
+            resTex += '\\end{bmatrix}';
+            resDisplay += '</ul>';
+
+            stepsHTML += createStepCard(10, "Final Joint Velocities $[\\dot{\\theta}]$", `
+                <div class="math-scroll">$$ [\\dot{\\theta}] = ${resTex} $$</div>
+                <div class="result-box">${resDisplay}</div>
+            `);
+
+            container.innerHTML = stepsHTML;
+            if(window.MathJax) await MathJax.typesetPromise();
+        }
+
+        function exportPDF() {
+            const element = document.getElementById('app-container');
+            html2pdf().set({
+                margin: 0.5,
+                filename: 'Jacobian_Solution.pdf',
+                image: { type: 'jpeg', quality: 0.98 },
+                html2canvas: { scale: 2 },
+                jsPDF: { unit: 'in', format: 'a4', orientation: 'portrait' }
+            }).from(element).save();
+        }
+    </script>
+</body>
+</html>
